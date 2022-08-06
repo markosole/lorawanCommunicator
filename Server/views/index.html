@@ -1,0 +1,199 @@
+<html>
+	<head>
+		<title>LoraWan Location Server</title>
+		<meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+		<meta charset="utf-8">
+		<script src="/socket.io/socket.io.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.0/jquery.min.js" integrity="sha256-xNzN2a4ltkB44Mc/Jz3pT4iU1cmeR0FkXs4pru/JxaQ=" crossorigin="anonymous"></script>
+		<script src="https://maps.googleapis.com/maps/api/js?key=XXXXXXXXXXXXXXXXXXXXXXX&callback=initMap" async defer></script>
+		<style>
+			html, body {
+				height: 100%;
+				margin: 0;
+				padding: 0;
+			}
+			#map {
+				height: 100%;
+                width: 100%;
+			}
+            .service-status {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                padding: 5px;
+                background-color: rgb(44, 44, 44);
+                color: white;
+                font-size: 18px;
+                height: 30px;
+            }
+            #online-status-marker {
+                display: inline-block;
+                height: 10px;
+                width: 10px;
+                border-radius: 20px;
+                margin-left: 5px;
+                margin-right: 5px;
+                padding-top: 8px;
+                margin-top: 5px;
+                /* background-color: red; */
+            }
+            .circle-online {
+                background-color: greenyellow;
+            }
+            .circle-offline {
+                background-color: rgb(255, 0, 0);
+            }
+		</style>
+	</head>
+	<body>
+        <div class="service-status">
+            <span id="online-status-marker" class="circle-offline"></span> 
+            <span class="serverstatus-message">Connecting to server...</span><span id='server-address'></span>
+        </div>
+		<div id="map">Map loading....</div>
+		<script type="text/javascript">
+			
+            // Sockets
+            let isOnline = false;
+            var timeout = 1000;
+            //Starting socket.io // Orginal
+            var socketServer = "ws://localhost";
+            var socketPort = 3300;
+            let publicIP = "";
+            var socket = io.connect(socketServer+":"+socketPort, {
+                'connect timeout': timeout,
+                'reconnect': true,
+                'reconnection delay': 2000,
+                'max reconnection attempts': 10000,
+                'force new connection':true
+            });
+            socket.on('lora-clients', function (data) {
+                console.log("Server Socket data received");
+                // console.log(data);
+                // using foreach to draw on map
+                $.each( data, function( key, pos ) {
+                     //addMarker(pos); 
+                     console.log(pos);
+                });
+            });
+
+            socket.on("connect", function(){
+                isOnline = true;
+                pushServerStatus(isOnline)
+            });
+            socket.on("connecting", function(){
+                isOnline = false;
+                pushServerStatus(isOnline)
+            });
+            socket.on("connect_failed", function(){
+                isOnline = false;
+                pushServerStatus(isOnline)
+            });
+            socket.on("close", function(){
+                isOnline = false;
+                pushServerStatus(isOnline)
+            });
+            socket.on("disconnect", function(){
+                isOnline = false;
+                $( ".serverstatus-message" ).html("Disconnected")
+                pushServerStatus(isOnline)
+            });
+            socket.on("reconnect", function(){
+                isOnline = true;
+                pushServerStatus(isOnline)
+            });
+            socket.on("reconnecting", function(){
+                isOnline = false;
+                $( ".serverstatus-message" ).html("Connecting...")
+                pushServerStatus(isOnline)
+            });
+            socket.on("reconnect_failed", function(){
+                isOnline = false;
+                pushServerStatus(isOnline)
+            });
+            socket.on("error", function(){
+                isOnline = false;
+                pushServerStatus(isOnline)
+            });
+            
+            async function pushServerStatus(status){
+            
+            
+            if(status){
+                $("#server-address").html(" | " + socketServer)
+                $( ".serverstatus-message" ).html("Online")
+                $( "span#online-status-marker" ).addClass( "circle-online" )
+                $( "span#online-status-marker" ).removeClass( "circle-offline" )
+
+            } else {
+                $( ".serverstatus-message" ).html("Offline")
+                $( "span#online-status-marker" ).addClass( "circle-offline" )
+                $( "span#online-status-marker" ).removeClass( "circle-online" )
+                }
+            }
+
+            // ## End Sockets
+            
+            
+            // ## Maps
+            // 1st part
+            var map;
+            function initMap() {
+                map = new google.maps.Map(document.getElementById('map'), {
+                    center: {lat: 53.327, lng: -6.297},
+                    zoom: 8
+                });
+            }
+
+            // 2nd part
+            function getLocation() {
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(showPosition, hidePosition);
+                }else{ 
+                    alert("Geolocation is not supported by this browser. Now we trying to get your location through your IP address.");
+                    ipPosition();
+                }
+            }
+            function showPosition(position) {
+                pos = {
+                    lat: parseFloat(position.coords.latitude),
+                    lng: parseFloat(position.coords.longitude)
+                };
+            }
+            function hidePosition(position) {
+                alert('User denied the access of the position. Now we trying to get your location through your IP address.');
+                ipPosition();
+            }
+            function ipPosition(){
+                $.get("http://ipinfo.io", function (response) {
+                    var loc = response.loc.split(',');
+                    pos = {
+                        lat: parseFloat(loc[0]),
+                        lng: parseFloat(loc[1])
+                    };
+                }, "jsonp");
+            }
+            getLocation();
+
+
+            // 3rd part
+            var markers = [];
+            var getMarkerUniqueId = function(lat, lng) {
+                return lat + '_' + lng;
+            }
+            function addMarker(location) {                                      // Adds a marker to the map and push to the array.
+                var markerId = getMarkerUniqueId(location.lat, location.lng);   // that will be used to cache this marker in markers object.
+                var marker = new google.maps.Marker({
+                    position: location,
+                    map: map,
+                    animation: google.maps.Animation.DROP,
+                    id: markerId
+                });
+                markers[markerId] = marker;
+            }
+            var removeMarker = function(marker, markerId) {
+                marker.setMap(null);                                            // set markers setMap to null to remove it from map
+                delete markers[markerId];                                       // delete marker instance from markers object
+            };
+
+		</script>
+	</body>
+</html>
